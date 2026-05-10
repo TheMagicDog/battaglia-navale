@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Battaglia Navale</title>
+    <style>
+        :root {
+            --bg-color: #020a04;
+            --grid-color: #00ff41;
+            --target-color: #ff2a2a;
+            --cell-size: 65px; /* Radar ingrandito (prima era 50px) */
+            --grid-size: 10;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            background-image: radial-gradient(circle at center, #051c0a 0%, #010602 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+            color: var(--grid-color);
+        }
+
+        /* Effetto Scanline CRT su tutto lo schermo */
+        body::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+            background-size: 100% 4px;
+            z-index: 100;
+            pointer-events: none;
+        }
+
+        .dashboard {
+            display: flex;
+            gap: 60px;
+            align-items: stretch; /* Permette alla sidebar di prendere l'altezza della griglia */
+            z-index: 10;
+        }
+
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            width: 450px; 
+        }
+
+        /* Forza il box della lista a riempire tutto lo spazio verticale rimanente */
+        .sidebar .data-list:last-child {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .data-list {
+            color: var(--grid-color);
+            text-shadow: 0 0 5px rgba(0, 255, 65, 0.5);
+            border: 1px solid rgba(0, 255, 65, 0.3);
+            background-color: rgba(0, 20, 0, 0.6);
+            padding: 20px;
+            border-radius: 4px;
+            position: relative;
+            box-shadow: inset 0 0 20px rgba(0, 255, 65, 0.05);
+        }
+
+        /* HUD Corners */
+        .data-list::before, .data-list::after {
+            content: ''; position: absolute; width: 15px; height: 15px; border: 2px solid var(--grid-color);
+        }
+        .data-list::before { top: -2px; left: -2px; border-right: none; border-bottom: none; }
+        .data-list::after { bottom: -2px; right: -2px; border-left: none; border-top: none; }
+
+        .data-list h3 {
+            margin-top: 0;
+            border-bottom: 1px dashed rgba(0, 255, 65, 0.5);
+            padding-bottom: 10px;
+            font-size: 1.2rem;
+            letter-spacing: 2px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .data-list h3::after {
+            content: 'SYS.OP. NORMAL';
+            font-size: 0.7rem;
+            animation: blink 2s infinite;
+        }
+
+        .intro-box p {
+            font-size: 0.85rem;
+            line-height: 1.6;
+            margin: 0;
+            text-align: justify;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        #target-list {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            column-gap: 20px;
+            row-gap: 12px;
+            align-content: start; /* Mantiene i bersagli allineati in alto anche se il box è più alto */
+        }
+        
+        .data-item {
+            font-size: 0.85rem;
+            line-height: 1.4;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            transition: color 0.2s, text-shadow 0.2s;
+        }
+
+        .data-item:hover {
+            color: #fff;
+            text-shadow: 0 0 5px #fff;
+        }
+
+        .data-item.expanded {
+            white-space: normal;
+            align-items: flex-start;
+        }
+
+        .data-item.expanded::before {
+            margin-top: 4px;
+        }
+        
+        .data-item::before {
+            content: '■';
+            color: var(--target-color);
+            font-size: 0.6rem;
+            text-shadow: 0 0 5px var(--target-color);
+        }
+
+        .data-item.missed::before {
+            color: rgba(255, 255, 255, 0.8);
+            text-shadow: 0 0 5px rgba(255, 255, 255, 0.8);
+        }
+
+        .game-container {
+            display: grid;
+            grid-template-columns: 40px calc(var(--cell-size) * var(--grid-size) + 1px);
+            grid-template-rows: 40px calc(var(--cell-size) * var(--grid-size) + 1px);
+            gap: 10px;
+            align-items: start;
+            position: relative;
+        }
+
+        .grid-board {
+            width: calc(var(--cell-size) * var(--grid-size) + 1px);
+            height: calc(var(--cell-size) * var(--grid-size) + 1px);
+            display: grid;
+            grid-template-columns: repeat(var(--grid-size), var(--cell-size));
+            grid-template-rows: repeat(var(--grid-size), var(--cell-size));
+
+            background-image: 
+                linear-gradient(to right, rgba(0, 255, 65, 0.2) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(0, 255, 65, 0.2) 1px, transparent 1px);
+            background-size: var(--cell-size) var(--cell-size);
+            
+            border: 2px solid rgba(0, 255, 65, 0.6);
+            position: relative;
+            box-shadow: 0 0 30px rgba(0, 255, 65, 0.15), inset 0 0 50px rgba(0, 255, 65, 0.1);
+            
+            grid-column: 2;
+            grid-row: 2;
+            overflow: hidden; /* Necessario per nascondere il fascio radar che esce dal bordo */
+        }
+
+        /* Anelli concentrici radar */
+        .grid-board::after {
+            content: '';
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 100%; height: 100%;
+            border-radius: 50%;
+            background-image: 
+                radial-gradient(circle, transparent 19.5%, rgba(0,255,65,0.4) 20%, transparent 20.5%),
+                radial-gradient(circle, transparent 39.5%, rgba(0,255,65,0.4) 40%, transparent 40.5%),
+                radial-gradient(circle, transparent 59.5%, rgba(0,255,65,0.4) 60%, transparent 60.5%),
+                radial-gradient(circle, transparent 79.5%, rgba(0,255,65,0.4) 80%, transparent 80.5%);
+            pointer-events: none;
+        }
+
+        @keyframes sweep {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Effetto sweep radar animato interno */
+        .grid-board::before {
+            content: '';
+            position: absolute;
+            /* Ingrandiamo il gradiente per coprire gli angoli durante la rotazione */
+            top: -50%; left: -50%;
+            width: 200%; height: 200%;
+            background: conic-gradient(from 0deg at 50% 50%, transparent 0deg, transparent 300deg, rgba(0, 255, 65, 0.3) 355deg, rgba(200, 255, 200, 0.8) 360deg);
+            pointer-events: none;
+            mix-blend-mode: screen;
+            z-index: 5;
+            animation: sweep 4s linear infinite;
+        }
+
+        /* Overlay crosshair */
+        .radar-crosshair {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            pointer-events: none;
+            background: 
+                linear-gradient(to right, transparent calc(50% - 1px), rgba(0, 255, 65, 0.5) 50%, transparent calc(50% + 1px)),
+                linear-gradient(to bottom, transparent calc(50% - 1px), rgba(0, 255, 65, 0.5) 50%, transparent calc(50% + 1px));
+            z-index: 1;
+        }
+
+        .target-dot {
+            width: 16px;
+            height: 16px;
+            background-color: var(--target-color);
+            border-radius: 50%;
+            justify-self: center;
+            align-self: center;
+            box-shadow: 0 0 10px var(--target-color);
+            cursor: crosshair;
+            transition: transform 0.2s ease;
+            position: relative;
+            z-index: 10;
+        }
+
+        /* Target bianchi (Acqua / Non scoperti) */
+        .target-dot.missed {
+            background-color: rgba(255, 255, 255, 0.8);
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+        }
+
+        /* Effetto "Ping" pulsante per i target */
+        .target-dot::after {
+            content: '';
+            position: absolute;
+            top: -8px; left: -8px;
+            right: -8px; bottom: -8px;
+            border-radius: 50%;
+            border: 1px solid var(--target-color);
+            animation: ping 2.5s infinite ease-out;
+            opacity: 0;
+        }
+
+        .target-dot.missed::after {
+            border-color: rgba(255, 255, 255, 0.8);
+        }
+
+        @keyframes ping {
+            0% { transform: scale(0.5); opacity: 1; }
+            100% { transform: scale(2.5); opacity: 0; }
+        }
+
+        .target-dot:hover {
+            transform: scale(1.5);
+            background-color: #fff;
+            box-shadow: 0 0 15px #fff;
+        }
+
+        .coordinates {
+            display: flex;
+            color: rgba(0, 255, 65, 0.6);
+            font-size: 1rem;
+            text-shadow: 0 0 4px rgba(0, 255, 65, 0.4);
+            font-weight: bold;
+        }
+
+        .coord-numbers {
+            grid-column: 2;
+            grid-row: 1;
+            align-items: flex-end;
+            padding-bottom: 8px;
+        }
+
+        .coord-letters {
+            grid-column: 1;
+            grid-row: 2;
+            flex-direction: column;
+            align-items: flex-end;
+            padding-right: 12px;
+        }
+
+        .coord-item {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .coord-numbers .coord-item {
+            width: var(--cell-size);
+        }
+
+        .coord-letters .coord-item {
+            height: var(--cell-size);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard">
+        <!-- Pannello di sinistra -->
+        <div class="sidebar">
+            
+            <div class="data-list intro-box">
+                <h3>INTRO</h3>
+                <p>I generi fotografici sono come coordinate in una battaglia navale: alcuni bersagli sono stati colpiti, ma molte navi restano da scoprire. La loro mappa non è casuale. L'asse verticale traccia la profondità: le lettere più alte indicano immagini fortemente connotative e interpretative. L'asse orizzontale definisce la sfera d'uso: salendo con i numeri, lo stile passa dal dominio intimo e privato fino a un'esposizione completamente pubblica.</p>
+            </div>
+
+            <div class="data-list">
+                <h3>TARGET COLPITI</h3>
+                <div id="target-list">
+                    <!-- I dati verranno inseriti qui dallo script -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabellone di destra -->
+        <div class="game-container">
+            <!-- Numeri in alto -->
+            <div class="coordinates coord-numbers">
+                <div class="coord-item">1</div>
+                <div class="coord-item">2</div>
+                <div class="coord-item">3</div>
+                <div class="coord-item">4</div>
+                <div class="coord-item">5</div>
+                <div class="coord-item">6</div>
+                <div class="coord-item">7</div>
+                <div class="coord-item">8</div>
+                <div class="coord-item">9</div>
+                <div class="coord-item">10</div>
+            </div>
+
+            <!-- Lettere a sinistra -->
+            <div class="coordinates coord-letters">
+                <div class="coord-item">A</div>
+                <div class="coord-item">B</div>
+                <div class="coord-item">C</div>
+                <div class="coord-item">D</div>
+                <div class="coord-item">E</div>
+                <div class="coord-item">F</div>
+                <div class="coord-item">G</div>
+                <div class="coord-item">H</div>
+                <div class="coord-item">I</div>
+                <div class="coord-item">J</div>
+            </div>
+
+            <div class="grid-board" id="radar-board">
+                <div class="radar-crosshair"></div>
+                <!-- Le navi e i colpi andranno posizionati qui dentro -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Dati estratti dal file posizioni.csv
+        // Denotativa/Connotativa = Riga (1-10 corrisponde a A-J)
+        // Privato/Pubblico = Colonna (1-10)
+        const targets = [
+            { nome: "Immagini religiose", row: 9, col: 8 },
+            { nome: "Immagini ricordo", row: 2, col: 1 },
+            { nome: "Pubblicità", row: 9, col: 10 },
+            { nome: "Immagini social", row: 4, col: 9 },
+            { nome: "Fotografia generativa", row: 5, col: 8 },
+            { nome: "Cronaca", row: 2, col: 10 },
+            { nome: "Ritratto", row: 6, col: 5 },
+            { nome: "Immagini scientifiche", row: 1, col: 7 },
+            { nome: "Fotoromanzo", row: 7, col: 10 },
+            { nome: "Immagini d'arte", row: 4, col: 4 },
+            { nome: "Fotografia cibo", row: 3, col: 9 },
+            { nome: "Moda", row: 7, col: 9 },
+            { nome: "Mondo editoriale", row: 5, col: 10 },
+            { nome: "Foto erotica", row: 8, col: 5 },
+            { nome: "Fotografia sociale", row: 3, col: 10 },
+            { nome: "Riprese aeree", row: 1, col: 6 },
+            { nome: "Fotografia identificativa", row: 1, col: 5 },
+            { nome: "Paesaggi", row: 3, col: 5 },
+            { nome: "Immagini naturalistiche", row: 9, col: 9 }
+        ];
+
+        const board = document.getElementById('radar-board');
+        const targetList = document.getElementById('target-list');
+        const letterMap = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+        
+        // Coordinate dei target non ancora identificati ("acqua")
+        const missedCoords = ['C5', 'D4', 'D9', 'E10', 'G10', 'I10'];
+
+        // Posiziona ogni target sulla griglia e popola la lista completa
+        targets.forEach(target => {
+            const letter = letterMap[target.row - 1];
+            const coord = `${letter}${target.col}`;
+            const isMissed = missedCoords.includes(coord);
+
+            const dot = document.createElement('div');
+            dot.classList.add('target-dot');
+            if (isMissed) dot.classList.add('missed');
+            
+            dot.title = target.nome; // Mostra il nome al passaggio del mouse
+            
+            // Assegna riga e colonna usando CSS Grid
+            dot.style.gridRow = target.row;
+            dot.style.gridColumn = target.col;
+
+            board.appendChild(dot);
+
+            // Aggiungi ogni target alla lista laterale
+            const listItem = document.createElement('div');
+            listItem.classList.add('data-item');
+            if (isMissed) listItem.classList.add('missed');
+            
+            // Formatta il testo come "[A7] Immagini scientifiche"
+            listItem.innerText = `[${coord}] ${target.nome}`;
+            
+            // Interattività: clicca per espandere il nome se tagliato
+            listItem.addEventListener('click', () => {
+                listItem.classList.toggle('expanded');
+            });
+
+            targetList.appendChild(listItem);
+        });
+    </script>
+</body>
+</html>

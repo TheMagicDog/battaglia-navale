@@ -244,6 +244,41 @@
             z-index: 10;
         }
 
+        /* Tooltip globale per i pallini (posizionato fuori dal box della griglia) */
+        .global-dot-tooltip {
+            position: fixed;
+            left: 0;
+            top: 0;
+            transform: translate3d(0,0,0);
+            background: rgba(0, 0, 0, 0.85);
+            color: var(--grid-color);
+            padding: 6px 10px;
+            font-size: 0.8rem;
+            border-radius: 4px;
+            white-space: nowrap;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.12s ease, transform 0.12s ease;
+            box-shadow: 0 0 12px rgba(0, 255, 65, 0.12);
+            z-index: 9999;
+            will-change: transform, opacity, left, top;
+            max-width: 60vw;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .global-dot-tooltip::after {
+            content: '';
+            position: absolute;
+            width: 0; height: 0;
+            border-style: solid;
+            border-width: 6px 6px 0 6px;
+            border-color: rgba(0,0,0,0.85) transparent transparent transparent;
+            bottom: -6px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
         /* Target bianchi (Acqua / Non scoperti) */
         .target-dot.missed {
             background-color: rgba(255, 255, 255, 0.8);
@@ -400,6 +435,26 @@
         const board = document.getElementById('radar-board');
         const targetList = document.getElementById('target-list');
         const letterMap = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+
+        // Tooltip globale per evitare il clipping dentro `.grid-board`
+        const globalTooltip = document.createElement('div');
+        globalTooltip.className = 'global-dot-tooltip';
+        document.body.appendChild(globalTooltip);
+
+        function positionGlobalTooltip(clientX, clientY) {
+            const pad = 12;
+            // inizialmente posizionato sopra il cursore
+            let x = clientX + 12;
+            let y = clientY - 30;
+
+            // misura il tooltip (dopo che ha testo)
+            const rect = globalTooltip.getBoundingClientRect();
+            if (x + rect.width + pad > window.innerWidth) x = window.innerWidth - rect.width - pad;
+            if (y < 6) y = clientY + 18;
+
+            globalTooltip.style.left = x + 'px';
+            globalTooltip.style.top = y + 'px';
+        }
         
         // Coordinate dei target non ancora identificati ("acqua")
         const missedCoords = ['C5', 'D4', 'D9', 'E10', 'G10', 'I10'];
@@ -414,11 +469,22 @@
             dot.classList.add('target-dot');
             if (isMissed) dot.classList.add('missed');
             
-            dot.title = target.nome; // Mostra il nome al passaggio del mouse
-            
             // Assegna riga e colonna usando CSS Grid
             dot.style.gridRow = target.row;
             dot.style.gridColumn = target.col;
+
+            // Mostra tooltip globale su hover e segui il cursore
+            dot.addEventListener('mouseenter', (e) => {
+                globalTooltip.textContent = target.nome;
+                globalTooltip.style.opacity = '1';
+                positionGlobalTooltip(e.clientX, e.clientY);
+            });
+            dot.addEventListener('mousemove', (e) => {
+                positionGlobalTooltip(e.clientX, e.clientY);
+            });
+            dot.addEventListener('mouseleave', () => {
+                globalTooltip.style.opacity = '0';
+            });
 
             board.appendChild(dot);
 
